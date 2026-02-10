@@ -14,7 +14,7 @@ pipeline {
         DOCKER = "/usr/local/bin/docker"
         IMAGE_NAME = "syarifudinyoga/express-hello"
         // optional Slack webhook
-        SLACK_WEBHOOK = credentials('slack-webhook') 
+        // SLACK_WEBHOOK = credentials('slack-webhook') 
     }
 
     stages {
