@@ -1,66 +1,98 @@
 pipeline {
     agent any
 
-    // Input parameter untuk versi Docker image
     parameters {
         string(
             name: 'VERSION',
             defaultValue: '1.0.0',
-            description: 'Docker image version (e.g., 1.0.0)'
+            description: 'Docker image version'
         )
     }
 
     environment {
-        // Path Docker di macOS (sesuaikan kalau beda)
         DOCKER = "/usr/local/bin/docker"
-        // Nama image Docker
         IMAGE_NAME = "syarifudinyoga/express-hello"
+        // optional Slack webhook
+        SLACK_WEBHOOK = credentials('slack-webhook') 
     }
 
     stages {
-        stage('Build Image') {
+        stage('Install Dependencies') {
             steps {
+                echo "Installing dependencies..."
+                sh 'npm install'
+            }
+        }
+
+        stage('Lint & Test') {
+            steps {
+                echo "Running lint and tests..."
+                sh 'npm run lint || true'   // jangan gagal kalau lint warning
+                sh 'npm test'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo "Building Docker image version ${params.VERSION}..."
                 sh """
-                  echo "Building Docker image ${IMAGE_NAME}:${params.VERSION}"
-                  $DOCKER build -t ${IMAGE_NAME}:${params.VERSION} .
-                  $DOCKER tag ${IMAGE_NAME}:${params.VERSION} ${IMAGE_NAME}:latest
+                  ${DOCKER} build -t ${IMAGE_NAME}:${params.VERSION} .
+                  ${DOCKER} tag ${IMAGE_NAME}:${params.VERSION} ${IMAGE_NAME}:latest
                 """
             }
         }
 
         stage('Login Docker Hub') {
             steps {
-                // Gunakan credential ID yang sudah ada di Jenkins
                 withCredentials([usernamePassword(
-                    credentialsId: 'e8e2a09a-fa6d-486e-87b6-5bc99e1c232b', 
-                    usernameVariable: 'DOCKER_USER', 
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
                     sh """
-                      echo "Logging in to Docker Hub"
-                      echo "$DOCKER_PASS" | $DOCKER login -u "$DOCKER_USER" --password-stdin
+                      echo "$DOCKER_PASS" | ${DOCKER} login -u "$DOCKER_USER" --password-stdin
                     """
                 }
             }
         }
 
-        stage('Push Image') {
+        stage('Push Docker Image') {
             steps {
+                echo "Pushing Docker image..."
                 sh """
-                  echo "Pushing Docker image ${IMAGE_NAME}:${params.VERSION}"
-                  $DOCKER push ${IMAGE_NAME}:${params.VERSION}
-                  $DOCKER push ${IMAGE_NAME}:latest
+                  ${DOCKER} push ${IMAGE_NAME}:${params.VERSION}
+                  ${DOCKER} push ${IMAGE_NAME}:latest
                 """
+            }
+        }
+
+        stage('Cleanup Docker') {
+            steps {
+                echo "Cleaning up old Docker images..."
+                sh '${DOCKER} system prune -f'
             }
         }
     }
 
     post {
         success {
-            echo "Docker image pushed successfully: ${IMAGE_NAME}:${params.VERSION}"
+            echo "Build & Push sukses 🎉"
+            slackSend(
+                channel: '#docker-build',
+                color: 'good',
+                message: "Build sukses: ${IMAGE_NAME}:${params.VERSION}"
+            )
         }
         failure {
-            echo "Build failed!"
+            echo "Build gagal ❌"
+            slackSend(
+                channel: '#docker-build',
+                color: 'danger',
+                message: "Build gagal: ${IMAGE_NAME}:${params.VERSION}"
+            )
+        }
+        always {
+            echo "Pipeline selesai ✅"
         }
     }
 }
