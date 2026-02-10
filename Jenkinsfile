@@ -1,16 +1,38 @@
 pipeline {
     agent any
 
+    environment {
+        DOCKER = "/usr/local/bin/docker"
+        IMAGE_NAME = "syarifudinyoga/express-hello:latest"
+    }
+
     stages {
-        stage('Check Docker') {
+        stage('Build Image') {
             steps {
-                sh '/usr/local/bin/docker --version'
+                sh "$DOCKER build -t $IMAGE_NAME ."
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Login Docker Hub') {
             steps {
-                sh '/usr/local/bin/docker build -t syarifudinyoga/express-hello:latest .'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_PASS" | /usr/local/bin/docker login \
+                        -u "$DOCKER_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh "$DOCKER push $IMAGE_NAME"
             }
         }
     }
